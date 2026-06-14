@@ -17,69 +17,147 @@
 
 https://github.com/akshaykburusa/gradientnbv/assets/127020264/dfa1f2a9-f07c-4af0-84ef-7ea20a7cb61b
 
+## About
+
+This repository provides a gradient-based next-best-view (NBV) planner for robotic arm manipulation with an ABB IRB 1200 arm and Intel RealSense L515 camera in Gazebo simulation. It is a re-implementation of the original [gradientnbv](https://github.com/akshaykburusa/gradientnbv) repository for **Ubuntu 22.04** using **ROS Noetic through RoboStack** (conda-based), with compatibility fixes for modern C++ and NumPy versions.
+
+## Prerequisites
+
+- Ubuntu 22.04
+- [Miniconda](https://docs.anaconda.com/miniconda/) (or Anaconda)
+- NVIDIA GPU with at least 8 GB VRAM
+
 ## Installation
 
-### Prerequisites
+### 1. Create the conda environment
 
-[Ubuntu 20.04](https://releases.ubuntu.com/20.04/)  
-[ROS Noetic](http://wiki.ros.org/noetic/Installation/Ubuntu)  
-At least 8GB of GPU VRAM
-
-### Clone the repository
-
-```
-git clone https://github.com/akshaykburusa/gradientnbv.git
+```bash
+conda create -n grad_env -c conda-forge -c robostack-noetic ros-noetic-desktop
+conda activate grad_env
+conda config --env --add channels robostack-noetic
+conda config --env --remove channels defaults
 ```
 
-### ROS dependencies
+### 2. Install build tools and dependencies
 
-Quick install:
-```
-cd gradient_nbv
-sudo ./install_ros_pkgs.sh
-```
-Manual install:
-```
-sudo apt install ros-noetic-moveit
-sudo apt install ros-noetic-ros-controllers
-sudo apt install ros-noetic-trac-ik
-```
+```bash
+conda install -c conda-forge ros-dev-tools compilers cmake=3.26 pkg-config make ninja catkin_tools
 
-### Python packages
+conda install -c conda-forge -c robostack-noetic \
+  ros-noetic-gazebo-ros-pkgs ros-noetic-ros-control ros-noetic-ros-controllers \
+  ros-noetic-moveit ros-noetic-moveit-commander ros-noetic-moveit-setup-assistant \
+  ros-noetic-moveit-visual-tools nlopt
 
-Quick install:
-```
-cd gradient_nbv
-conda env create -f install_conda_pkgs.yaml
-```
-Manual install:
-```
-conda create -n grad_nbv python==3.8.10
-conda install pytorch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1 pytorch-cuda=11.7 -c pytorch -c nvidia
-pip install pyyaml==6.0.1
-pip install rospkg==1.5.1
-pip install opencv-python==4.9.0.80
-pip install scipy==1.10.1
-pip install pytransform3d==3.5.0
-pip install open3d==0.18.0
+conda install -c conda-forge \
+  libtiff libffi pillow opencv pyyaml rospkg scipy pytransform3d \
+  open3d empy defusedxml pytorch torchvision torchaudio
 ```
 
-### Compile
-```
-cd gradient_nbv
-catkin_make -DCMAKE_BUILD_TYPE=Release
+### 3. Create workspace and clone the repository
+
+```bash
+mkdir -p ~/grad_ws/src
+cd ~/grad_ws/src
+
+git clone https://github.com/<your-username>/gradientnbv.git
+mv gradientnbv/src/* .
+rm -rf gradientnbv
+
+# TRAC-IK kinematics solver (not available in RoboStack's pre-compiled channels)
+git clone -b master https://bitbucket.org/traclabs/trac_ik.git
 ```
 
-## Execute
+### 4. Apply C++14 patch for ABB industrial drivers
 
-Bring up the simulation environment with the robot (ABB robotic arm + Realsense L515 camera):
+The ABB robot drivers in this repo use legacy C++11 flags that conflict with Conda's modern Boost libraries:
+
+```bash
+cd ~/grad_ws
+find src -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/c++11/c++14/g' {} +
+find src -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/c++0x/c++14/g' {} +
+find src -type f \( -name "CMakeLists.txt" -o -name "*.cmake" \) -exec sed -i 's/CXX_STANDARD 11/CXX_STANDARD 14/g' {} +
 ```
+
+### 5. Apply MoveIt controller fix
+
+The original `ros_controllers.yaml` has an empty controller name that prevents MoveIt from connecting to the Gazebo arm controller:
+
+```bash
+cd ~/grad_ws
+sed -i 's/name: ""/name: arm_controller/' \
+  src/robot/abb_l515_moveit_config/config/ros_controllers.yaml
+sed -i 's/action_ns: joint_trajectory_action/action_ns: follow_joint_trajectory/' \
+  src/robot/abb_l515_moveit_config/config/ros_controllers.yaml
+```
+
+### 6. Apply NumPy compatibility patches to ros_numpy
+
+The shipped `ros_numpy` uses APIs removed in NumPy ≥1.24:
+
+```bash
+cd ~/grad_ws
+sed -i 's/np\.fromstring(msg\.data/np.frombuffer(msg.data/' \
+  src/common/ros_numpy/src/ros_numpy/image.py
+sed -i 's/\.tostring()/.tobytes()/g' \
+  src/common/ros_numpy/src/ros_numpy/image.py
+sed -i 's/\.tostring()/.tobytes()/g' \
+  src/common/ros_numpy/src/ros_numpy/point_cloud2.py
+```
+
+### 7. Fix arm control service handler
+
+The ROS service callback in `arm_control.cpp` returns `false` on planning failure, which Python interprets as a transport error instead of a response with `success=False`:
+
+```bash
+cd ~/grad_ws
+sed -i 's/return res.success;/return true;/' \
+  src/robot/abb_control/src/arm_control.cpp
+```
+
+### 8. Build
+
+```bash
+cd ~/grad_ws
+catkin build --cmake-args \
+  -DCMAKE_CXX_STANDARD=14 \
+  -DCMAKE_CXX_FLAGS="-std=c++14 -I$CONDA_PREFIX/include/eigen3" \
+  -DCMAKE_BUILD_TYPE=Release
+```
+
+### 9. Source the workspace
+
+```bash
+source devel/setup.bash
+```
+
+### 10. Patch NumPy compatibility in installed cv_bridge
+
+The Conda environment's `cv_bridge` package also calls the removed `.tostring()` API:
+
+```bash
+sed -i 's/\.tostring()/.tobytes()/g' \
+  $CONDA_PREFIX/lib/python3.12/site-packages/cv_bridge/core.py
+```
+
+## Running the experiments
+
+Open two terminals.
+
+**Terminal 1** — Launch the simulation with the ABB arm and L515 camera in Gazebo:
+
+```bash
+conda activate grad_env
+cd ~/grad_ws
+source devel/setup.bash
 roslaunch abb_l515_bringup abb_l515_bringup.launch
 ```
 
-Start the gradient-based local next-best-view planner in a new terminal:
-```
-conda activate grad_nbv
+**Terminal 2** — Start the gradient-based NBV planner (wait for Gazebo to fully load first):
+
+```bash
+conda activate grad_env
+cd ~/grad_ws
+source devel/setup.bash
 roslaunch viewpoint_planning viewpoint_planning.launch
 ```
 
