@@ -59,7 +59,7 @@ conda install -c conda-forge \
 mkdir -p ~/grad_ws/src
 cd ~/grad_ws/src
 
-git clone https://github.com/<your-username>/gradientnbv.git
+git clone https://github.com/akshaykburusa/gradientnbv.git
 mv gradientnbv/src/* .
 rm -rf gradientnbv
 
