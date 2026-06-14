@@ -21,6 +21,8 @@ https://github.com/akshaykburusa/gradientnbv/assets/127020264/dfa1f2a9-f07c-4af0
 
 This repository provides a gradient-based next-best-view (NBV) planner for robotic arm manipulation with an ABB IRB 1200 arm and Intel RealSense L515 camera in Gazebo simulation. It is a re-implementation of the original [gradientnbv](https://github.com/akshaykburusa/gradientnbv) repository for **Ubuntu 22.04** using **ROS Noetic through RoboStack** (conda-based), with compatibility fixes for modern C++ and NumPy versions.
 
+https://github.com/user-attachments/assets/c71a8c2e-26a1-47da-8565-ed78fada5e1c
+
 ## Prerequisites
 
 - Ubuntu 22.04
